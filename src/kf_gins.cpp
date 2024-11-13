@@ -160,10 +160,12 @@ int main(int argc, char *argv[]) {
     int percent = 0, lastpercent = 0;
     double interval = endtime - starttime;
 
-    while (true) {
+    while (true)
+    {
         // 当前IMU状态时间新于GNSS时间时，读取并添加新的GNSS数据到GIEngine
         // load new gnssdata when current state time is newer than GNSS time and add it to GIEngine
-        if (gnss.time < imu_cur.time && !gnssfile.isEof()) {
+        if (gnss.time < imu_cur.time && !gnssfile.isEof())\
+        {
             gnss = gnssfile.next();
             giengine.addGnssData(gnss);
         }
@@ -171,7 +173,8 @@ int main(int argc, char *argv[]) {
         // 读取并添加新的IMU数据到GIEngine
         // load new imudata and add it to GIEngine
         imu_cur = imufile.next();
-        if (imu_cur.time > endtime || imufile.isEof()) {
+        if (imu_cur.time > endtime || imufile.isEof())
+        {
             break;
         }
         giengine.addImuData(imu_cur);

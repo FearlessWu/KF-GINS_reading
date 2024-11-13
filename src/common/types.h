@@ -32,8 +32,9 @@ using Eigen::Vector3d;
 typedef struct GNSS {
     double time;
 
-    Vector3d blh;
-    Vector3d std;
+    Vector3d blh; // 大地坐标 rad
+    Vector3d std; // 大地坐标误差m
+    Vector3d nedvel; // NED速度 m/s
 
     bool isvalid;
 } GNSS;
@@ -42,9 +43,10 @@ typedef struct IMU {
     double time;
     double dt;
 
-    Vector3d dtheta;
-    Vector3d dvel;
-
+    Vector3d dtheta;    // 转过的角度
+    Vector3d dvel;      // 速度
+    Vector3d a;         // 加速度 m/s
+    Vector3d w;         // 角速度 rad/s
     double odovel;
 } IMU;
 

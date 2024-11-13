@@ -36,16 +36,16 @@ typedef struct Attitude {
 } Attitude;
 
 typedef struct PVA {
-    Eigen::Vector3d pos;
-    Eigen::Vector3d vel;
+    Eigen::Vector3d pos; // 纬度、经度、海拔
+    Eigen::Vector3d vel; // 北、东、地速度
     Attitude att;
 } PVA;
 
 typedef struct ImuError {
-    Eigen::Vector3d gyrbias;
-    Eigen::Vector3d accbias;
-    Eigen::Vector3d gyrscale;
-    Eigen::Vector3d accscale;
+    Eigen::Vector3d gyrbias;    // 陀螺仪零偏误差
+    Eigen::Vector3d accbias;    // 加速度计零偏误差
+    Eigen::Vector3d gyrscale;   // 陀螺仪尺度误差
+    Eigen::Vector3d accscale;   // 加速度计尺度误差
 } ImuError;
 
 typedef struct NavState {

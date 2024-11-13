@@ -45,7 +45,8 @@ class Earth {
 
 public:
     /* 正常重力计算 */
-    static double gravity(const Vector3d &blh) {
+    static double gravity(const Vector3d &blh)
+    {
 
         double sin2 = sin(blh[0]);
         sin2 *= sin2;
@@ -55,7 +56,8 @@ public:
     }
 
     /* 计算子午圈半径和卯酉圈半径 */
-    static Eigen::Vector2d meridianPrimeVerticalRadius(double lat) {
+    static Eigen::Vector2d meridianPrimeVerticalRadius(double lat)
+    {
         double tmp, sqrttmp;
 
         tmp = sin(lat);
@@ -117,7 +119,8 @@ public:
     }
 
     /* 从n系到e系转换四元数得到纬度和经度 */
-    static Vector3d blh(const Quaterniond &qne, double height) {
+    static Vector3d blh(const Quaterniond &qne, double height)
+    {
         return {-2 * atan(qne.y() / qne.w()) - M_PI * 0.5, 2 * atan2(qne.z(), qne.w()), height};
     }
 
@@ -159,7 +162,8 @@ public:
     }
 
     /* n系相对位置转大地坐标相对位置 */
-    static Matrix3d DRi(const Vector3d &blh) {
+    static Matrix3d DRi(const Vector3d &blh)
+    {
         Matrix3d dri = Matrix3d::Zero();
 
         Eigen::Vector2d rmn = meridianPrimeVerticalRadius(blh[0]);
@@ -171,7 +175,8 @@ public:
     }
 
     /* 大地坐标相对位置转n系相对位置 */
-    static Matrix3d DR(const Vector3d &blh) {
+    static Matrix3d DR(const Vector3d &blh)
+    {
         Matrix3d dr = Matrix3d::Zero();
 
         Eigen::Vector2d rmn = meridianPrimeVerticalRadius(blh[0]);

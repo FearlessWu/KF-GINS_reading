@@ -103,11 +103,14 @@ void GIEngine::newImuProcess() {
     // determine if we should do GNSS update
     int res = isToUpdate(imupre_.time, imucur_.time, updatetime);
 
-    if (res == 0) {
+    if (res == 0)
+    {
         // 只传播导航状态
         // only propagate navigation state
         insPropagation(imupre_, imucur_);
-    } else if (res == 1) {
+    }
+    else if (res == 1)
+    {
         // GNSS数据靠近上一历元，先对上一历元进行GNSS更新
         // gnssdata is near to the previous imudata, we should firstly do gnss update
         gnssUpdate(gnssdata_);
@@ -115,13 +118,17 @@ void GIEngine::newImuProcess() {
 
         pvapre_ = pvacur_;
         insPropagation(imupre_, imucur_);
-    } else if (res == 2) {
+    }
+    else if (res == 2)
+    {
         // GNSS数据靠近当前历元，先对当前IMU进行状态传播
         // gnssdata is near current imudata, we should firstly propagate navigation state
         insPropagation(imupre_, imucur_);
         gnssUpdate(gnssdata_);
         stateFeedback();
-    } else {
+    }
+    else
+    {
         // GNSS数据在两个IMU数据之间(不靠近任何一个), 将当前IMU内插到整秒时刻
         // gnssdata is between the two imudata, we interpolate current imudata to gnss time
         IMU midimu;
@@ -157,15 +164,15 @@ void GIEngine::imuCompensate(IMU &imu) {
     // 补偿IMU零偏
     // compensate the imu bias
     imu.dtheta -= imuerror_.gyrbias * imu.dt;
-    imu.dvel -= imuerror_.accbias * imu.dt;
+    imu.dvel   -= imuerror_.accbias * imu.dt;
 
     // 补偿IMU比例因子
     // compensate the imu scale
     Eigen::Vector3d gyrscale, accscale;
     gyrscale   = Eigen::Vector3d::Ones() + imuerror_.gyrscale;
     accscale   = Eigen::Vector3d::Ones() + imuerror_.accscale;
-    imu.dtheta = imu.dtheta.cwiseProduct(gyrscale.cwiseInverse());
-    imu.dvel   = imu.dvel.cwiseProduct(accscale.cwiseInverse());
+    imu.dtheta = imu.dtheta.cwiseProduct(gyrscale.cwiseInverse());  // cwiseProduct=点乘 dtheta / (1 + gyrscale)
+    imu.dvel   = imu.dvel.cwiseProduct(accscale.cwiseInverse());    // cwiseInverse=倒数 dvel / (1 + accscale)
 }
 
 void GIEngine::insPropagation(IMU &imupre, IMU &imucur) {
@@ -338,19 +345,26 @@ void GIEngine::gnssUpdate(GNSS &gnssdata) {
 
 int GIEngine::isToUpdate(double imutime1, double imutime2, double updatetime) const {
 
-    if (abs(imutime1 - updatetime) < TIME_ALIGN_ERR) {
+    if (abs(imutime1 - updatetime) < TIME_ALIGN_ERR)
+    {
         // 更新时间靠近imutime1
         // updatetime is near to imutime1
         return 1;
-    } else if (abs(imutime2 - updatetime) <= TIME_ALIGN_ERR) {
+    }
+    else if (abs(imutime2 - updatetime) <= TIME_ALIGN_ERR)
+    {
         // 更新时间靠近imutime2
         // updatetime is near to imutime2
         return 2;
-    } else if (imutime1 < updatetime && updatetime < imutime2) {
+    }
+    else if (imutime1 < updatetime && updatetime < imutime2)
+    {
         // 更新时间在imutime1和imutime2之间, 但不靠近任何一个
         // updatetime is between imutime1 and imutime2, but not near to either
         return 3;
-    } else {
+    }
+    else
+    {
         // 更新时间不在imutimt1和imutime2之间，且不靠近任何一个
         // updatetime is not bewteen imutime1 and imutime2, and not near to either.
         return 0;
@@ -445,4 +459,120 @@ NavState GIEngine::getNavState() {
     state.imuerror = imuerror_;
 
     return state;
+}
+
+/**
+ * @brief                   使用GNSS位置进行INS初始化对准
+ * @param  curimu           当前历元imu观测值
+ * @param  preimu           前一历元imu观测值
+ * @param  gnssdata         GNSS观测值
+ * @param  pvacur           当前状态
+ * @param  pvapre           前一姿态
+ * @return true             Return doc
+ * @return false            Return doc
+ */
+bool GIEngine::initializeImuStateByGnssPos(IMU curimu, IMU preimu, GNSS gnssdata, PVA &pvacur, PVA &pvapre)
+{
+    static bool initRollPitch = false;
+    static bool startMoving = false;
+    static double last_gnsstime = 0.0;
+    static Vector3d last_blh;
+    static Vector3d rk(0.0, 0.0, 0.0);
+    static Vector3d first_blh = gnssdata.blh;
+    static Eigen::Quaterniond q0(0.0, 0.0, 0.0, 0.0);
+    
+    bool sync = abs(curimu.time - gnssdata.time) <= TIME_ALIGN_ERR ? true : false;
+
+    if (initRollPitch && sync)
+    {
+        Vector3d d_blh = gnssdata.blh - last_blh;
+    
+        if (gnssdata.nedvel.norm() >= 1.0)
+        {
+            first_blh   = gnssdata.blh;
+            startMoving = true;
+        }
+
+        if (startMoving)
+        {
+            Eigen::Vector2d rmrn = Earth::meridianPrimeVerticalRadius(gnssdata.blh[0]); // 求出子午圈半径和卯酉圈半径
+            double rn = d_blh[0] / (rmrn[1] + gnssdata.blh[2]);
+            double re = d_blh[1] / (rmrn[0] + gnssdata.blh[2]) * cos(gnssdata.blh[0]);
+            Eigen::DiagonalMatrix<double, 3> DR(1.0 / (rmrn[1] + gnssdata.blh[2]), 1.0 / ((rmrn[0] + gnssdata.blh[2]) * cos(gnssdata.blh[0])), -1.0);
+            Eigen::Vector3d skb(sqrt(rn * rn + re * re), 0, 0);
+            rk = rk + DR * pvacur.att.cbn * skb; // imu DR
+
+            Eigen::Vector2d imudrk(rk[0], rk[1]);
+            if (imudrk.norm() > 10.0)
+            {
+                Eigen::Vector2d gnssdrk;
+                Eigen::Quaterniond qyaw;
+                Eigen::Vector3d sai;
+                d_blh = gnssdata.blh - first_blh;
+                rn = d_blh[0] / (rmrn[1] + gnssdata.blh[2]);
+                re = d_blh[1] / (rmrn[0] + gnssdata.blh[2]) * cos(gnssdata.blh[0]);
+                gnssdrk << rn, re;
+                sai << 0, 0, acos(imudrk.dot(gnssdrk) / (imudrk.norm() * gnssdrk.norm()));
+                qyaw = Rotation::euler2quaternion(sai);
+                // 校正当前姿态
+                pvacur.att.qbn = qyaw * pvacur.att.qbn;
+                pvacur.att.cbn   = Rotation::quaternion2matrix(pvacur.att.qbn);
+                pvacur.att.euler = Rotation::matrix2euler(pvacur.att.cbn);
+                // 校正前姿态
+                pvapre.att.qbn   = qyaw * pvapre.att.qbn;
+                pvapre.att.cbn   = Rotation::quaternion2matrix(pvapre.att.qbn);
+                pvapre.att.euler = Rotation::matrix2euler(pvapre.att.cbn);
+
+                return true;
+            }
+        }
+    }
+
+    if (gnssdata.time - last_gnsstime > 0.0)
+    {
+        last_gnsstime = gnssdata.time;
+        last_blh = gnssdata.blh;
+    }
+
+    //  估计准静止Roll pitch角
+    if (sync && !initRollPitch)
+    {
+        if (gnssdata.isvalid && gnssdata.nedvel.norm() <= 1.0)
+        {
+            // Step 1: Calculate Roll and Pitch angles
+            double roll  = std::atan2(curimu.a[0], curimu.a[2]); // Roll angle (phi)
+            double pitch = std::atan2(-curimu.a[0], std::sqrt(curimu.a[1] * curimu.a[1] + curimu.a[2] * curimu.a[2])); // Pitch angle (theta)
+
+            // Step 2: Compute the quaternion components
+            double halfRoll  = roll / 2.0;
+            double halfPitch = pitch / 2.0;
+
+            double q_w = std::cos(halfRoll) * std::cos(halfPitch);
+            double q_x = std::sin(halfRoll) * std::cos(halfPitch);
+            double q_y = std::cos(halfRoll) * std::sin(halfPitch);
+            double q_z = -std::sin(halfRoll) * std::sin(halfPitch);
+            pvacur.att.qbn = Eigen::Quaterniond(q_w, q_x, q_y, q_z);
+            pvacur.att.cbn = Rotation::quaternion2matrix(pvacur.att.qbn);
+            pvacur.att.euler = Rotation::matrix2euler(pvacur.att.cbn);
+            q0 = pvacur.att.qbn;
+            initRollPitch = true;
+            return false;
+        }
+        else
+        {
+            return false;
+        }
+    }
+
+    // 简易角度编排
+    if (initRollPitch)
+    {
+        Vector3d phi = curimu.dtheta + preimu.dtheta.cross(curimu.dtheta) / 12.0;
+        Eigen::Quaterniond qbb = Rotation::rotvec2quaternion(phi);
+        pvacur.att.qbn = pvapre.att.qbn * qbb;
+        pvacur.att.cbn = Rotation::quaternion2matrix(pvacur.att.qbn);
+        pvacur.att.euler = Rotation::matrix2euler(pvacur.att.cbn);
+    }
+
+    return true;
 }

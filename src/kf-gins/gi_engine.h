@@ -75,6 +75,7 @@ public:
      * */
     void newImuProcess();
 
+
     /**
      * @brief 内插增量形式的IMU数据到指定时刻
      *        interpolate incremental imudata to given timestamp
@@ -146,6 +147,7 @@ private:
      * */
     void imuCompensate(IMU &imu);
 
+    bool initializeImuStateByGnssPos(IMU curimu, IMU preimu, GNSS gnssdata, PVA &pvacur, PVA &pvapre);
     /**
      * @brief 判断是否需要更新,以及更新哪一时刻系统状态
      *        determine if we should do upate and which navstate to update
@@ -248,9 +250,9 @@ private:
 
     // Kalman滤波相关
     // ekf variables
-    Eigen::MatrixXd Cov_;
-    Eigen::MatrixXd Qc_;
-    Eigen::MatrixXd dx_;
+    Eigen::MatrixXd Cov_;  // 误差状态方差
+    Eigen::MatrixXd Qc_;   // 随机游走误差
+    Eigen::MatrixXd dx_;   // 误差方程状态增量
 
     const int RANK      = 21;
     const int NOISERANK = 18;

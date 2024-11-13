@@ -5,24 +5,13 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Windows 启动",
-            "type": "cppvsdbg",
-            "request": "launch",
-            "cwd": "${workspaceFolder}",
-            "program": "${workspaceFolder}/bin/KF-GINS",
-            "args": ["./dataset/kf-gins.yaml"],
-            "stopAtEntry": true,
-            "environment": [],
-            "console": "integratedTerminal"
-        },
-        {
-            "name": "Linux gdb 启动",
+            "name": "linux launch",
             "type": "cppdbg",
             "request": "launch",
             "cwd": "${workspaceFolder}",
             "program": "${workspaceFolder}/bin/KF-GINS",
             "args": ["./dataset/kf-gins.yaml"],
-            "stopAtEntry": true,
+            "stopAtEntry": false,
             "environment": [],
             "externalConsole": false,
             "MIMode": "gdb",

@@ -45,7 +45,7 @@ void INSMech::velUpdate(const PVA &pvapre, PVA &pvacur, const IMU &imupre, const
     // calculate geographic parameters, Meridian and Mao unitary radii,
     // earth rotational angular velocity projected to n-frame,
     // rotational angular velocity of n-frame to e-frame projected to n-frame, and gravity
-    Eigen::Vector2d rmrn = Earth::meridianPrimeVerticalRadius(pvapre.pos(0));
+    Eigen::Vector2d rmrn = Earth::meridianPrimeVerticalRadius(pvapre.pos(0)); // 求出子午圈半径和卯酉圈半径
     Eigen::Vector3d wie_n, wen_n;
     wie_n << WGS84_WIE * cos(pvapre.pos[0]), 0, -WGS84_WIE * sin(pvapre.pos[0]);
     wen_n << pvapre.vel[1] / (rmrn[1] + pvapre.pos[2]), -pvapre.vel[0] / (rmrn[0] + pvapre.pos[2]),
@@ -54,11 +54,11 @@ void INSMech::velUpdate(const PVA &pvapre, PVA &pvacur, const IMU &imupre, const
 
     // 旋转效应和双子样划桨效应
     // rotational and sculling motion
-    temp1 = imucur.dtheta.cross(imucur.dvel) / 2;
+    temp1 = imucur.dtheta.cross(imucur.dvel) / 2; // cross是叉乘
     temp2 = imupre.dtheta.cross(imucur.dvel) / 12;
     temp3 = imupre.dvel.cross(imucur.dtheta) / 12;
 
-    // b系比力积分项
+    // b系比力积分项(三样子假设下的积分)
     // velocity increment due to the specific force
     d_vfb = imucur.dvel + temp1 + temp2 + temp3;
 
@@ -66,7 +66,7 @@ void INSMech::velUpdate(const PVA &pvapre, PVA &pvacur, const IMU &imupre, const
     // velocity increment dut to the specfic force projected to the n-frame
     temp1 = (wie_n + wen_n) * imucur.dt / 2;
     cnn   = I33 - Rotation::skewSymmetric(temp1);
-    d_vfn = cnn * pvapre.att.cbn * d_vfb;
+    d_vfn = cnn * pvapre.att.cbn * d_vfb;             // d_vfn = Cnn(k-1, k) * Cbn(k-1, k-1) * d_vfb
 
     // 计算重力/哥式积分项
     // velocity increment due to the gravity and Coriolis force
@@ -175,7 +175,7 @@ void INSMech::attUpdate(const PVA &pvapre, PVA &pvacur, const IMU &imupre, const
     temp1 = -(wie_n + wen_n) * imucur.dt;
     qnn   = Rotation::rotvec2quaternion(temp1);
 
-    // 计算b系旋转四元数 补偿二阶圆锥误差
+    // 计算b系旋转四元数 补偿二阶圆锥误差 计算等效旋转矢量
     // b-frame rotation vector (b(k) with respect to b(k-1)-frame)
     // compensate the second-order coning correction term.
     temp1 = imucur.dtheta + imupre.dtheta.cross(imucur.dtheta) / 12;
@@ -187,3 +187,4 @@ void INSMech::attUpdate(const PVA &pvapre, PVA &pvacur, const IMU &imupre, const
     pvacur.att.cbn   = Rotation::quaternion2matrix(pvacur.att.qbn);
     pvacur.att.euler = Rotation::matrix2euler(pvacur.att.cbn);
 }
+
