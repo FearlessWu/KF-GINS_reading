@@ -478,6 +478,8 @@ bool GIEngine::alignInsByGnssPos(IMU curimu, IMU preimu, GNSS gnssdata, GNSS gns
     static Vector3d rk(0.0, 0.0, 0.0);
     static Vector3d first_blh = gnssdata.blh;
     static Eigen::Quaterniond q0(0.0, 0.0, 0.0, 0.0);
+    static Vector3d as(0.0, 0.0, 0.0);
+    static int an = 0;
     
     bool sync = abs(curimu.time - gnssdata.time) <= TIME_ALIGN_ERR ? true : false;
     Vector3d acc = (gnssdata.nedvel - gnsspre.nedvel) / (gnssdata.time - gnsspre.time);
@@ -493,16 +495,20 @@ bool GIEngine::alignInsByGnssPos(IMU curimu, IMU preimu, GNSS gnssdata, GNSS gns
     }
 
     //  估计准静止Roll pitch角
-    if (sync && !initRollPitch) {
-        if (gnssdata.isvalid && gnssdata.nedvel.norm() >= 0.5 && acc.norm() < 0.2) {
-            // Step 1: Calculate Roll and Pitch angles
-            double roll  = std::atan(curimu.a[1] / curimu.a[2]); // Roll angle (phi)
-            double pitch = std::atan(-curimu.a[0] / std::sqrt(curimu.a[1] * curimu.a[1] + curimu.a[2] * curimu.a[2])); // Pitch angle (theta)
+    if (sync && !startMoving) {
+        if (gnssdata.isvalid && acc.norm() < 0.2) {
 
-            // Step 2: Compute the quaternion components
+            // 加速度求平均
+            as += curimu.a;
+            an++;
+            Vector3d a = -as / an; // f = a^b - Cnb * g^n --> -f = Cnb * g^n
+            // 计算roll pitch
+            double roll  = std::atan2(a[1], a[2]); // Roll angle (phi)
+            double pitch = std::atan2(-a[0], std::sqrt(a[1] * a[1] + a[2] * a[2])); // Pitch angle (theta)
+
+            // 计算四元数
             double halfRoll  = roll / 2.0;
             double halfPitch = pitch / 2.0;
-
             double q_w       = std::cos(halfRoll) * std::cos(halfPitch);
             double q_x       = std::sin(halfRoll) * std::cos(halfPitch);
             double q_y       = std::cos(halfRoll) * std::sin(halfPitch);
@@ -519,8 +525,7 @@ bool GIEngine::alignInsByGnssPos(IMU curimu, IMU preimu, GNSS gnssdata, GNSS gns
         }
     }
 
-    if (initRollPitch && sync)
-    {
+    if (initRollPitch && sync && gnssdata.nedvel.norm() >= 0.5) {
         Vector3d d_blh = gnssdata.blh - gnsspre.blh;
     
         if (!startMoving)
