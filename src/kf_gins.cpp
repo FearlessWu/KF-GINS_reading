@@ -25,13 +25,15 @@
 #include <iomanip>
 #include <iostream>
 #include <yaml-cpp/yaml.h>
-
+#include "common/earth.h"
 #include "common/angle.h"
 #include "fileio/filesaver.h"
 #include "fileio/gnssfileloader.h"
 #include "fileio/imufileloader.h"
 
 #include "kf-gins/gi_engine.h"
+
+#define ALIGNMENG
 
 bool loadConfig(YAML::Node &config, GINSOptions &options);
 void writeNavResult(double time, NavState &navstate, FileSaver &navfile, FileSaver &imuerrfile);
@@ -108,7 +110,7 @@ int main(int argc, char *argv[]) {
     // imuerrfile: time(1) + gyrbias(3) + accbias(3) + gyrscale(3) + accscale(3) = 13
     // stdfile: time(1) + pva_std(9) + imubias_std(6) + imuscale_std(6) = 22
     int nav_columns = 11, imuerr_columns = 13, std_columns = 22;
-    FileSaver navfile(outputpath + "/KF_GINS_Navresult.nav", nav_columns, FileSaver::TEXT);
+    FileSaver navfile(outputpath + "/KF_GINS_Navresult_debug.nav", nav_columns, FileSaver::TEXT);
     FileSaver imuerrfile(outputpath + "/KF_GINS_IMU_ERR.txt", imuerr_columns, FileSaver::TEXT);
     FileSaver stdfile(outputpath + "/KF_GINS_STD.txt", std_columns, FileSaver::TEXT);
 
@@ -132,6 +134,13 @@ int main(int argc, char *argv[]) {
     // 数据对齐
     // data alignment
     IMU imu_cur;
+#ifdef ALIGNMENG // alignment test
+    IMU imu_pre;
+    PVA pvacur;
+    PVA pvapre;
+    GNSS gnss_pre;
+    gnss_pre.isvalid = false;
+#endif
     do {
         imu_cur = imufile.next();
     } while (imu_cur.time < starttime);
@@ -160,13 +169,17 @@ int main(int argc, char *argv[]) {
     int percent = 0, lastpercent = 0;
     double interval = endtime - starttime;
 
+    bool isAlignment = false;
+
     while (true)
     {
         // 当前IMU状态时间新于GNSS时间时，读取并添加新的GNSS数据到GIEngine
         // load new gnssdata when current state time is newer than GNSS time and add it to GIEngine
         if (gnss.time < imu_cur.time && !gnssfile.isEof())\
         {
+            gnss_pre = gnss;
             gnss = gnssfile.next();
+            gnss.isvalid = true;
             giengine.addGnssData(gnss);
         }
 
@@ -179,6 +192,35 @@ int main(int argc, char *argv[]) {
         }
         giengine.addImuData(imu_cur);
 
+#ifdef ALIGNMENG
+        if (!gnss_pre.isvalid)
+        {
+            gnss.nedvel << 0.0, 0.0, 0.0;
+        }
+        else
+        {
+            Vector3d dblh = (gnss.blh - gnss_pre.blh);
+            double dt = gnss.time - gnss_pre.time;
+            Eigen::Vector2d rmrn = Earth::meridianPrimeVerticalRadius(gnss.blh[0]); // 求出卯酉圈半径、 子午圈半径
+            double rn = dblh[0] * (rmrn[1] + gnss.blh[2]);
+            double re = dblh[1] * (rmrn[0] + gnss.blh[2]) * cos(gnss.blh[0]);
+            gnss.nedvel << rn / dt, re / dt, dblh[2] / dt;
+        }
+        imu_cur.w = imu_cur.dtheta /imu_cur.dt;
+        imu_cur.a = imu_cur.dvel / imu_cur.dt;
+        if (!isAlignment && gnss_pre.isvalid)
+        {
+            isAlignment = giengine.alignInsByGnssPos(imu_cur, imu_pre, gnss, gnss_pre, pvacur, pvapre);
+        }
+
+        imu_pre = imu_cur;
+        pvapre = pvacur;
+
+        if (!isAlignment)
+        {
+            continue;
+        }
+#endif
         // 处理新的IMU数据
         // process new imudata
         giengine.newImuProcess();

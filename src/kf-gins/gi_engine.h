@@ -128,6 +128,9 @@ public:
         return Cov_;
     }
 
+    bool alignInsByGnssPos(IMU curimu, IMU preimu, GNSS gnssdata, GNSS gnsspre, PVA &pvacur, PVA &pvapre);
+
+
 private:
     /**
      * @brief 初始化系统状态和协方差
@@ -147,7 +150,6 @@ private:
      * */
     void imuCompensate(IMU &imu);
 
-    bool initializeImuStateByGnssPos(IMU curimu, IMU preimu, GNSS gnssdata, PVA &pvacur, PVA &pvapre);
     /**
      * @brief 判断是否需要更新,以及更新哪一时刻系统状态
      *        determine if we should do upate and which navstate to update

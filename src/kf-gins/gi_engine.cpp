@@ -471,47 +471,83 @@ NavState GIEngine::getNavState() {
  * @return true             Return doc
  * @return false            Return doc
  */
-bool GIEngine::initializeImuStateByGnssPos(IMU curimu, IMU preimu, GNSS gnssdata, PVA &pvacur, PVA &pvapre)
+bool GIEngine::alignInsByGnssPos(IMU curimu, IMU preimu, GNSS gnssdata, GNSS gnsspre, PVA &pvacur, PVA &pvapre)
 {
     static bool initRollPitch = false;
     static bool startMoving = false;
-    static double last_gnsstime = 0.0;
-    static Vector3d last_blh;
     static Vector3d rk(0.0, 0.0, 0.0);
     static Vector3d first_blh = gnssdata.blh;
     static Eigen::Quaterniond q0(0.0, 0.0, 0.0, 0.0);
     
     bool sync = abs(curimu.time - gnssdata.time) <= TIME_ALIGN_ERR ? true : false;
+    Vector3d acc = (gnssdata.nedvel - gnsspre.nedvel) / (gnssdata.time - gnsspre.time);
+
+    // 简易角度编排
+    if (initRollPitch)
+    {
+        Vector3d phi           = curimu.dtheta + preimu.dtheta.cross(curimu.dtheta) / 12.0;
+        Eigen::Quaterniond qbb = Rotation::rotvec2quaternion(phi);
+        pvacur.att.qbn         = pvapre.att.qbn * qbb;
+        pvacur.att.cbn         = Rotation::quaternion2matrix(pvacur.att.qbn);
+        pvacur.att.euler       = Rotation::matrix2euler(pvacur.att.cbn);
+    }
+
+    //  估计准静止Roll pitch角
+    if (sync && !initRollPitch) {
+        if (gnssdata.isvalid && gnssdata.nedvel.norm() >= 0.5 && acc.norm() < 0.2) {
+            // Step 1: Calculate Roll and Pitch angles
+            double roll  = std::atan(curimu.a[1] / curimu.a[2]); // Roll angle (phi)
+            double pitch = std::atan(-curimu.a[0] / std::sqrt(curimu.a[1] * curimu.a[1] + curimu.a[2] * curimu.a[2])); // Pitch angle (theta)
+
+            // Step 2: Compute the quaternion components
+            double halfRoll  = roll / 2.0;
+            double halfPitch = pitch / 2.0;
+
+            double q_w       = std::cos(halfRoll) * std::cos(halfPitch);
+            double q_x       = std::sin(halfRoll) * std::cos(halfPitch);
+            double q_y       = std::cos(halfRoll) * std::sin(halfPitch);
+            double q_z       = -std::sin(halfRoll) * std::sin(halfPitch);
+            pvacur.att.qbn   = Eigen::Quaterniond(q_w, q_x, q_y, q_z);
+            pvacur.att.cbn   = Rotation::quaternion2matrix(pvacur.att.qbn);
+            pvacur.att.euler = Rotation::matrix2euler(pvacur.att.cbn);
+            q0               = pvacur.att.qbn;
+            initRollPitch    = true;
+        }
+        else
+        {
+            return false;
+        }
+    }
 
     if (initRollPitch && sync)
     {
-        Vector3d d_blh = gnssdata.blh - last_blh;
+        Vector3d d_blh = gnssdata.blh - gnsspre.blh;
     
-        if (gnssdata.nedvel.norm() >= 1.0)
+        if (!startMoving)
         {
             first_blh   = gnssdata.blh;
             startMoving = true;
         }
-
-        if (startMoving)
+        else
         {
             Eigen::Vector2d rmrn = Earth::meridianPrimeVerticalRadius(gnssdata.blh[0]); // 求出子午圈半径和卯酉圈半径
-            double rn = d_blh[0] / (rmrn[1] + gnssdata.blh[2]);
-            double re = d_blh[1] / (rmrn[0] + gnssdata.blh[2]) * cos(gnssdata.blh[0]);
+            double rn = d_blh[0] * (rmrn[1] + gnssdata.blh[2]);
+            double re = d_blh[1] * (rmrn[0] + gnssdata.blh[2]) * cos(gnssdata.blh[0]);
             Eigen::DiagonalMatrix<double, 3> DR(1.0 / (rmrn[1] + gnssdata.blh[2]), 1.0 / ((rmrn[0] + gnssdata.blh[2]) * cos(gnssdata.blh[0])), -1.0);
             Eigen::Vector3d skb(sqrt(rn * rn + re * re), 0, 0);
             rk = rk + DR * pvacur.att.cbn * skb; // imu DR
 
-            Eigen::Vector2d imudrk(rk[0], rk[1]);
-            if (imudrk.norm() > 10.0)
+            Eigen::Vector2d imudrk(rk[0] * (rmrn[1] + gnssdata.blh[2]), rk[1] * (rmrn[0] + gnssdata.blh[2]) * cos(gnssdata.blh[0]));
+            if (imudrk.norm() > 5.0)
             {
                 Eigen::Vector2d gnssdrk;
                 Eigen::Quaterniond qyaw;
                 Eigen::Vector3d sai;
                 d_blh = gnssdata.blh - first_blh;
-                rn = d_blh[0] / (rmrn[1] + gnssdata.blh[2]);
-                re = d_blh[1] / (rmrn[0] + gnssdata.blh[2]) * cos(gnssdata.blh[0]);
+                rn = d_blh[0] * (rmrn[1] + gnssdata.blh[2]);
+                re = d_blh[1] * (rmrn[0] + gnssdata.blh[2]) * cos(gnssdata.blh[0]);
                 gnssdrk << rn, re;
+
                 sai << 0, 0, acos(imudrk.dot(gnssdrk) / (imudrk.norm() * gnssdrk.norm()));
                 qyaw = Rotation::euler2quaternion(sai);
                 // 校正当前姿态
@@ -522,57 +558,15 @@ bool GIEngine::initializeImuStateByGnssPos(IMU curimu, IMU preimu, GNSS gnssdata
                 pvapre.att.qbn   = qyaw * pvapre.att.qbn;
                 pvapre.att.cbn   = Rotation::quaternion2matrix(pvapre.att.qbn);
                 pvapre.att.euler = Rotation::matrix2euler(pvapre.att.cbn);
-
+                // Vector3d rpy     = pvacur.att.euler * 180 / M_PI;
+                pvacur.pos = gnssdata.blh;
+                pvacur.vel = gnssdata.nedvel;
+                pvacur_  = pvacur;
+                pvapre_  = pvacur;
                 return true;
             }
         }
     }
 
-    if (gnssdata.time - last_gnsstime > 0.0)
-    {
-        last_gnsstime = gnssdata.time;
-        last_blh = gnssdata.blh;
-    }
-
-    //  估计准静止Roll pitch角
-    if (sync && !initRollPitch)
-    {
-        if (gnssdata.isvalid && gnssdata.nedvel.norm() <= 1.0)
-        {
-            // Step 1: Calculate Roll and Pitch angles
-            double roll  = std::atan2(curimu.a[0], curimu.a[2]); // Roll angle (phi)
-            double pitch = std::atan2(-curimu.a[0], std::sqrt(curimu.a[1] * curimu.a[1] + curimu.a[2] * curimu.a[2])); // Pitch angle (theta)
-
-            // Step 2: Compute the quaternion components
-            double halfRoll  = roll / 2.0;
-            double halfPitch = pitch / 2.0;
-
-            double q_w = std::cos(halfRoll) * std::cos(halfPitch);
-            double q_x = std::sin(halfRoll) * std::cos(halfPitch);
-            double q_y = std::cos(halfRoll) * std::sin(halfPitch);
-            double q_z = -std::sin(halfRoll) * std::sin(halfPitch);
-            pvacur.att.qbn = Eigen::Quaterniond(q_w, q_x, q_y, q_z);
-            pvacur.att.cbn = Rotation::quaternion2matrix(pvacur.att.qbn);
-            pvacur.att.euler = Rotation::matrix2euler(pvacur.att.cbn);
-            q0 = pvacur.att.qbn;
-            initRollPitch = true;
-            return false;
-        }
-        else
-        {
-            return false;
-        }
-    }
-
-    // 简易角度编排
-    if (initRollPitch)
-    {
-        Vector3d phi = curimu.dtheta + preimu.dtheta.cross(curimu.dtheta) / 12.0;
-        Eigen::Quaterniond qbb = Rotation::rotvec2quaternion(phi);
-        pvacur.att.qbn = pvapre.att.qbn * qbb;
-        pvacur.att.cbn = Rotation::quaternion2matrix(pvacur.att.qbn);
-        pvacur.att.euler = Rotation::matrix2euler(pvacur.att.cbn);
-    }
-
-    return true;
+    return false;
 }
